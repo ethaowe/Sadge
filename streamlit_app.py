@@ -1,56 +1,163 @@
-import streamlit as st
 from openai import OpenAI
+import streamlit as st
+import requests
 
-# Show title and description.
-st.title("💬 Chatbot")
+# Base URL for CarQuery API
+base_url = 'https://www.carqueryapi.com/api/0.3/'
+
+client = OpenAI(api_key="sk-sea-service-account-QpjdkS5UuD4xgu5RXdzDT3BlbkFJej0KTpg1FTXVjXizosNr")
+
+# Title and description
+st.title("🚗 AI Car Recommender")
 st.write(
-    "This is a simple chatbot that uses OpenAI's GPT-3.5 model to generate responses. "
-    "To use this app, you need to provide an OpenAI API key, which you can get [here](https://platform.openai.com/account/api-keys). "
-    "You can also learn how to build this app step by step by [following our tutorial](https://docs.streamlit.io/develop/tutorials/llms/build-conversational-apps)."
+    "Welcome to the AI Car Recommender! This tool uses OpenAI's GPT-3.5-turbo model to recommend car models based on your preferences. "
+    "To get started, please provide some information about what you're looking for in a car."
 )
 
-# Ask user for their OpenAI API key via `st.text_input`.
-# Alternatively, you can store the API key in `./.streamlit/secrets.toml` and access it
-# via `st.secrets`, see https://docs.streamlit.io/develop/concepts/connections/secrets-management
-openai_api_key = st.text_input("OpenAI API Key", type="password")
-if not openai_api_key:
-    st.info("Please add your OpenAI API key to continue.", icon="🗝️")
-else:
+# Initialize session state
+if "state" not in st.session_state:
+    st.session_state.state = "start"
+if "car_type" not in st.session_state:
+    st.session_state.car_type = ""
+if "budget" not in st.session_state:
+    st.session_state.budget = ""
+if "fuel_efficiency" not in st.session_state:
+    st.session_state.fuel_efficiency = ""
+if "preferences" not in st.session_state:
+    st.session_state.preferences = ""
+if "responses" not in st.session_state:
+    st.session_state.responses = []
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-    # Create an OpenAI client.
-    client = OpenAI(api_key=openai_api_key)
+# Define the dialog tree with polite messages
+dialog_tree = {
+    "start": {
+        "message": "Let's find the perfect car for you! What type of car are you interested in? (e.g., sedan, SUV, truck)",
+        "next_state": "get_car_type"
+    },
+    "get_car_type": {
+        "message": "Great choice! What is your budget for the car?",
+        "next_state": "get_budget"
+    },
+    "get_budget": {
+        "message": "Got it. How important is fuel efficiency to you? (e.g., very important, moderately important, not important)",
+        "next_state": "get_fuel_efficiency"
+    },
+    "get_fuel_efficiency": {
+        "message": "Understood. Do you have any specific preferences or features you're looking for in a car?",
+        "next_state": "get_preferences"
+    },
+    "get_preferences": {
+        "message": "Thank you! Based on the information provided, here are some car recommendations for you:\n\n"
+                   "Car Type: {car_type}\n"
+                   "Budget: {budget}\n"
+                   "Fuel Efficiency Preference: {fuel_efficiency}\n"
+                   "Preferences: {preferences}\n\n"
+                   "Recommended Car Models:\n",
+        "next_state": None
+    }
+}
 
-    # Create a session state variable to store the chat messages. This ensures that the
-    # messages persist across reruns.
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
+# Function to handle dialog
+def handle_dialog(state, user_input=None):
+    if state == "start":
+        return dialog_tree[state]["message"], dialog_tree[state]["next_state"], True
+    elif state == "get_car_type":
+        car_type = extract_entity(user_input, "car_type")
+        if car_type:
+            st.session_state.car_type = car_type
+            return dialog_tree[state]["message"], dialog_tree[state]["next_state"], True
+        else:
+            return "I didn't catch that. Could you please tell me what type of car you're interested in?", state, False
+    elif state == "get_budget":
+        budget = extract_entity(user_input, "budget")
+        if budget:
+            st.session_state.budget = budget
+            return dialog_tree[state]["message"], dialog_tree[state]["next_state"], True
+        else:
+            return "I didn't catch that. What is your budget for the car?", state, False
+    elif state == "get_fuel_efficiency":
+        fuel_efficiency = extract_entity(user_input, "fuel_efficiency")
+        if fuel_efficiency:
+            st.session_state.fuel_efficiency = fuel_efficiency
+            return dialog_tree[state]["message"], dialog_tree[state]["next_state"], True
+        else:
+            return "I didn't catch that. How important is fuel efficiency to you?", state, False
+    elif state == "get_preferences":
+        preferences = extract_entity(user_input, "preferences")
+        if preferences:
+            st.session_state.preferences = preferences
+            return dialog_tree[state]["message"].format(
+                car_type=st.session_state.car_type,
+                budget=st.session_state.budget,
+                fuel_efficiency=st.session_state.fuel_efficiency,
+                preferences=st.session_state.preferences
+            ), dialog_tree[state]["next_state"], True
+        else:
+            return "I didn't catch that. Do you have any specific preferences or features you're looking for in a car?", state, False
 
-    # Display the existing chat messages via `st.chat_message`.
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+# Function to recommend car models using OpenAI
+def recommend_cars():
+    prompt = f"Recommend car models that match the following criteria:\n\n" \
+             f"Car Type: {st.session_state.car_type}\n" \
+             f"Budget: {st.session_state.budget}\n" \
+             f"Fuel Efficiency Preference: {st.session_state.fuel_efficiency}\n" \
+            f"Preferences: {st.session_state.preferences}\n\n" \
+             f"Please provide a list of recommended car models."
 
-    # Create a chat input field to allow the user to enter a message. This will display
-    # automatically at the bottom of the page.
-    if prompt := st.chat_input("What is up?"):
+    response = client.chat.completions.create(model="gpt-3.5-turbo",
+    messages=[{"role": "system", "content": prompt}],
+    max_tokens=500)
+    return response.choices[0].message.content
 
-        # Store and display the current prompt.
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
+# Function to extract specific entity from the text and validate it
+def extract_entity(text, entity_type):
+    prompt = f"Extract the {entity_type} from the following text:\n\n{text}\n\nProvide only the {entity_type}."
+    response = client.chat.completions.create(model="gpt-3.5-turbo",
+    messages=[{"role": "system", "content": prompt}],
+    max_tokens=50)
+    extracted_entity = response.choices[0].message.content.strip()
+    if extracted_entity and validate_entity(extracted_entity, entity_type):
+        return extracted_entity
+    return None
 
-        # Generate a response using the OpenAI API.
-        stream = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": m["role"], "content": m["content"]}
-                for m in st.session_state.messages
-            ],
-            stream=True,
-        )
+# Function to validate the extracted entity
+def validate_entity(entity, entity_type):
+    if entity_type == "car_type":
+        valid_types = ["sedan", "truck", "hatchback", "coupe", "SUV"]
+        return any(car_type in entity.lower() for car_type in valid_types)
+    if entity_type == "budget":
+        return entity.isdigit()  # Budget should be a valid number
+    if entity_type == "fuel_efficiency":
+       valid_efficiencies = ["very important", "moderately important", "not important"]
+       return any(efficiency in entity.lower() for efficiency in valid_efficiencies)
+    if entity_type == "preferences":
+        return len(entity) > 0  # Preferences should not be empty
+    return False
 
-        # Stream the response to the chat using `st.write_stream`, then store it in 
-        # session state.
-        with st.chat_message("assistant"):
-            response = st.write_stream(stream)
-        st.session_state.messages.append({"role": "assistant", "content": response})
+# Display the existing chat messages
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+
+# Function to handle user responses
+def handle_user_response(prompt):
+    if st.session_state.state:
+        user_input = prompt
+        st.session_state.messages.append({"role": "user", "content": user_input})
+        message, next_state, valid_input = handle_dialog(st.session_state.state, user_input)
+        st.session_state.messages.append({"role": "assistant", "content": message})
+        if valid_input:
+            st.session_state.state = next_state
+        st.experimental_rerun()
+
+# Display final car recommendations if in the final state
+if st.session_state.state == "get_preferences":
+    car_recommendations = recommend_cars()
+    st.session_state.messages.append({"role": "assistant", "content": car_recommendations})
+    st.session_state.state = None
+
+# Handle user input at the bottom of the page
+if prompt := st.chat_input("Your response:"):
+    handle_user_response(prompt)
