@@ -41,7 +41,7 @@ dialog_tree = {
         "next_state": "get_budget"
     },
     "get_budget": {
-        "message": "Got it. How important is fuel efficiency to you? (e.g., very important, moderately important, not important)",
+        "message": "Got it. How important is fuel efficiency to you? (e.g.moderately important)",
         "next_state": "get_fuel_efficiency"
     },
     "get_fuel_efficiency": {
@@ -125,7 +125,7 @@ def extract_entity(text, entity_type):
 # Function to validate the extracted entity
 def validate_entity(entity, entity_type):
     if entity_type == "car_type":
-        valid_types = ["sedan", "truck", "hatchback", "coupe", "SUV"]
+        valid_types = ["sedan", "truck", "hatchback", "coupe", "suv"]
         return any(car_type in entity.lower() for car_type in valid_types)
     if entity_type == "budget":
         return entity.isdigit()  # Budget should be a valid number
